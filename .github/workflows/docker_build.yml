@@ -8,16 +8,27 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
+  build-and-test:
     runs-on: ubuntu-latest
+    env:
+      # Satisfies OpenAIAdapter init for /health smoke test only (no openai API calls).
+      OPENAI_API_KEY_SMOKE_TEST: sk-ci-dummy-key
     strategy:
       fail-fast: false
       matrix:
         include:
           - name: app
             dockerfile: Dockerfile.app
+            image: gyorilab/coda.app
+            port: 8000
+            health_retries: 60
+            needs_openai_key: false
           - name: inference
             dockerfile: Dockerfile.inference
+            image: gyorilab/coda.inference
+            port: 5123
+            health_retries: 30
+            needs_openai_key: true
 
     steps:
       - uses: actions/checkout@v4
@@ -30,7 +41,38 @@ jobs:
         with:
           context: .
           file: ${{ matrix.dockerfile }}
+          tags: ${{ matrix.image }}:test
           platforms: linux/amd64
+          load: true
           push: false
           cache-from: type=gha,scope=${{ matrix.name }}
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+
+      - name: Smoke test container
+        run: |
+          set -euo pipefail
+          ENV_ARGS=()
+          if [ "${{ matrix.needs_openai_key }}" = "true" ]; then
+            ENV_ARGS=(-e "OPENAI_API_KEY=${OPENAI_API_KEY_SMOKE_TEST}")
+          fi
+          docker run -d --name coda-test \
+            -p "${{ matrix.port }}:${{ matrix.port }}" \
+            "${ENV_ARGS[@]}" \
+            "${{ matrix.image }}:test"
+
+          for i in $(seq 1 "${{ matrix.health_retries }}"); do
+            if curl -sf "http://localhost:${{ matrix.port }}/health" > /dev/null; then
+              echo "Health check passed on attempt ${i}"
+              exit 0
+            fi
+            echo "Waiting for health check (attempt ${i}/${{ matrix.health_retries }})..."
+            sleep 2
+          done
+
+          echo "Health check failed after ${{ matrix.health_retries }} attempts"
+          docker logs coda-test
+          exit 1
+
+      - name: Stop test container
+        if: always()
+        run: docker rm -f coda-test 2>/dev/null || true
