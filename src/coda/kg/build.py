@@ -9,7 +9,8 @@ from coda.kg.sources import (
     probbase,
     hpo,
     mesh,
-    wdi,    
+    wdi,
+    who_mortality,
     KG_BASE,
     KGSourceExporter,
 )
@@ -26,7 +27,8 @@ EXPORTERS: list[KGSourceExporter] = [
     probbase.ProbBaseExporter(),
     hpo.HpoExporter(),
     mesh.MeshExporter(),
-    wdi.WDIExporter()
+    wdi.WDIExporter(),
+    who_mortality.WhoMortalityExporter(),
 ]
 
 
