@@ -69,7 +69,7 @@ RUN neo4j-admin database import full \
     --delimiter='TAB' \
     --skip-duplicate-nodes=true \
     --skip-bad-relationships=true \
-    --nodes /sw/kg/combined_nodes.tsv \
+    --nodes /sw/kg/combined_nodes.tsv.gz \
     --relationships /sw/kg/icd10_edges.tsv.gz \
     --nodes /sw/kg/icd10_nodes.tsv.gz \
     --relationships /sw/kg/acme_edges.tsv.gz \

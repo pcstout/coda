@@ -10,6 +10,8 @@ from coda.kg.sources import KGSourceExporter, KG_BASE
 
 logger = logging.getLogger(__name__)
 
+COMBINED_NODES_PATH = KG_BASE.joinpath("combined_nodes.tsv.gz")
+
 
 class DuplicateNodeIDError(ValueError):
     """Raised when a duplicate node ID is found in a node file."""
@@ -82,11 +84,10 @@ def check_duplicated_nodes(exporters: list[KGSourceExporter], strict: bool = Tru
         raise DuplicateNodeIDError(
             f"found conflicting information in {conflicting_nodes_count} nodes..."
         )
-    # Write combined node representation to a `kg/combined_nodes.tsv`
+    # Write combined node representation to a `kg/combined_nodes.tsv.gz`
     if len(joined_nodes) > 0:
         joined_df = pd.DataFrame(joined_nodes)
-        node_file = KG_BASE / "combined_nodes.tsv.gz"
-        joined_df.to_csv(node_file, sep="\t", index=False)
+        joined_df.to_csv(COMBINED_NODES_PATH, sep="\t", index=False)
 
 
 def check_missing_node_ids_in_edges(exporters: list[KGSourceExporter], strict: bool = True):
@@ -117,9 +118,8 @@ def check_missing_node_ids_in_edges(exporters: list[KGSourceExporter], strict: b
                 id_value = row[id_index]
                 node_ids.add(id_value)
     # Also check file that stores combined nodes just in case
-    combined_nodes_path = KG_BASE.joinpath("combined_nodes.tsv.gz")
-    if os.path.exists(combined_nodes_path):
-        with gzip.open(combined_nodes_path, "rt") as f:
+    if os.path.exists(COMBINED_NODES_PATH):
+        with gzip.open(COMBINED_NODES_PATH, "rt") as f:
             reader = csv.reader(f, delimiter="\t")
             header = next(reader)
             id_index = header.index("id:ID")
