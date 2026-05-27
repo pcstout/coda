@@ -74,12 +74,12 @@ def check_duplicated_nodes(exporters: list[KGSourceExporter], strict: bool = Tru
         joined_node["source:string[]"] = \
             ";".join(nodes_and_sources[duplicate_id])
         joined_nodes.append(joined_node)
-    ## will crash program if any duplicate nodes are found ##
+    # Will crash program if any duplicate nodes are found
     if conflicting_nodes_count > 0 and strict:
         raise DuplicateNodeIDError(
             f"found conflicting information in {conflicting_nodes_count} nodes..."
         )
-    ## write combined node representation to a `kg/combined_nodes.tsv` ##
+    # Write combined node representation to a `kg/combined_nodes.tsv`
     if len(joined_nodes) > 0:
         joined_df = pd.DataFrame(joined_nodes)
         node_file = KG_BASE / "combined_nodes.tsv"
