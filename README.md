@@ -43,17 +43,18 @@ The CODA Knowledge Graph integrates multiple data sources to create a comprehens
 medical knowledge base. The following table summarizes the content and structure
 contributed by each source:
 
-| Source | Node Types | Edge Types | Semantics |
-|--------|-----------|------------|-----------|
-| **ICD-10** | `icd10`: Disease classification codes | `is_a` (hierarchical) | WHO International Classification of Diseases, 10th revision. Provides standardized disease codes with hierarchical relationships. |
-| **ICD-11** | `icd11`: Disease classification codes | `is_a` (hierarchy)<br>`maps_to` (ICD-11 to ICD-10) | WHO ICD-11 revision with mappings to ICD-10. Enables cross-version code translation. |
+| Source | Node Types | Edge Types | Semantics                                                                                                                                                                                        |
+|--------|-----------|------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **ICD-10** | `icd10`: Disease classification codes | `is_a` (hierarchical) | WHO International Classification of Diseases, 10th revision. Provides standardized disease codes with hierarchical relationships.                                                                |
+| **ICD-11** | `icd11`: Disease classification codes | `is_a` (hierarchy)<br>`maps_to` (ICD-11 to ICD-10) | WHO ICD-11 revision with mappings to ICD-10. Enables cross-version code translation.                                                                                                             |
 | **ACME** | `icd10`: ICD-10 codes and code ranges | `causes` (causal relationships from Table D)<br>`part_of_range` (code to range membership) | CDC's WHO ICD-10 ACME decision tables encoding causal relationships between diseases for underlying cause of death determination. Sourced from [openacme](https://github.com/gyorilab/openacme). |
-| **PHMRC** | `phmrc`: Verbal autopsy terms | `maps_to` (ICD-10 to PHMRC) | Population Health Metrics Research Consortium terms used in VA data collection, mapped to ICD-10 codes. |
-| **WHO VA** | `who.va`: VA cause categories | `is_a` (hierarchy)<br>`maps_to` (ICD-10 to WHO VA) | WHO Verbal Autopsy cause categories with hierarchical structure and ICD-10 code range mappings. |
-| **ProbBase** | `who.va.q`: VA interview questions | `probbase_rel` (questions to causes) | InterVA probability base linking VA interview questions to WHO VA causes with probability values. |
-| **HPO** | `hp`: Phenotypes<br>`omim`: Diseases | `has_phenotype` (disease to phenotype) | Human Phenotype Ontology annotations linking diseases to clinical phenotypes with evidence, frequency, and onset metadata. |
-| **MeSH** | `mesh`: Diseases, pathogens, geographic locations | `isa` (hierarchical) | Medical Subject Headings hierarchy filtered to diseases, pathogens, and geographic locations. |
-| **WDI** | `wdi`: Development/health indicators | `has_indicator` (country to indicator) | World Bank World Development Indicators and World Health Indicators linked to country nodes, with time-series data stored as year-value mappings on edges. |
+| **PHMRC** | `phmrc`: Verbal autopsy terms | `maps_to` (ICD-10 to PHMRC) | Population Health Metrics Research Consortium terms used in VA data collection, mapped to ICD-10 codes.                                                                                          |
+| **WHO VA** | `who.va`: VA cause categories | `is_a` (hierarchy)<br>`maps_to` (ICD-10 to WHO VA) | WHO Verbal Autopsy cause categories with hierarchical structure and ICD-10 code range mappings.                                                                                                  |
+| **ProbBase** | `who.va.q`: VA interview questions | `probbase_rel` (questions to causes) | InterVA probability base linking VA interview questions to WHO VA causes with probability values.                                                                                                |
+| **HPO** | `hp`: Phenotypes<br>`omim`: Diseases | `has_phenotype` (disease to phenotype) | Human Phenotype Ontology annotations linking diseases to clinical phenotypes with evidence, frequency, and onset metadata.                                                                       |
+| **MeSH** | `mesh`: Diseases, pathogens, geographic locations | `isa` (hierarchical) | Medical Subject Headings hierarchy filtered to diseases, pathogens, and geographic locations.                                                                                                    |
+| **WDI** | `wdi`: Development/health indicators | `has_indicator` (country to indicator) | World Bank World Development Indicators and World Health Indicators linked to country nodes, with time-series data stored as year-value mappings on edges.                                       |
+| **WHO Mortality** | `who_mortality`: Country nodes with population data | `has_mortality` (country to ICD-10 cause) | WHO Mortality Database providing national death counts by ICD-10 cause from 2021 onwards, broken down by year, sex, and age group. Country nodes carry population and birth data.                |
 
 Running CODA using Docker
 -------------------------
