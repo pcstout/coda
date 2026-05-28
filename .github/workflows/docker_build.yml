@@ -1,0 +1,203 @@
+name: Build, test and push Docker images
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    env:
+      # Satisfies OpenAIAdapter init for /health smoke test only (no openai API calls).
+      OPENAI_API_KEY_SMOKE_TEST: sk-ci-dummy-key
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: app
+            dockerfile: Dockerfile.app
+            image: gyorilab/coda.app
+            port: 8000
+            health_retries: 60
+            health_path: /health
+            needs_openai_key: false
+            lfs: false
+          - name: inference
+            dockerfile: Dockerfile.inference
+            image: gyorilab/coda.inference
+            port: 5123
+            health_retries: 30
+            health_path: /health
+            needs_openai_key: true
+            lfs: false
+          - name: kg
+            dockerfile: Dockerfile.kg
+            image: gyorilab/coda.kg
+            port: 7474
+            health_retries: 90
+            health_path: /
+            needs_openai_key: false
+            lfs: true
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: ${{ matrix.lfs }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image (amd64)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          tags: ${{ matrix.image }}:test
+          platforms: linux/amd64
+          load: true
+          push: false
+          cache-from: type=gha,scope=${{ matrix.name }}-amd64
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}-amd64
+
+      - name: Smoke test container
+        run: |
+          set -euo pipefail
+          ENV_ARGS=()
+          if [ "${{ matrix.needs_openai_key }}" = "true" ]; then
+            ENV_ARGS=(-e "OPENAI_API_KEY=${OPENAI_API_KEY_SMOKE_TEST}")
+          fi
+          docker run -d --name coda-test \
+            -p "${{ matrix.port }}:${{ matrix.port }}" \
+            "${ENV_ARGS[@]}" \
+            "${{ matrix.image }}:test"
+
+          HEALTH_OK=false
+          for i in $(seq 1 "${{ matrix.health_retries }}"); do
+            if curl -sf "http://localhost:${{ matrix.port }}${{ matrix.health_path }}" > /dev/null; then
+              echo "Health check passed on attempt ${i}"
+              HEALTH_OK=true
+              break
+            fi
+            echo "Waiting for health check (attempt ${i}/${{ matrix.health_retries }})..."
+            sleep 2
+          done
+
+          if [ "${HEALTH_OK}" != "true" ]; then
+            echo "Health check failed after ${{ matrix.health_retries }} attempts"
+            docker logs coda-test
+            exit 1
+          fi
+
+      - name: Verify KG contents via Cypher
+        if: matrix.name == 'kg'
+        run: |
+          set -euo pipefail
+          RESPONSE=$(curl -sf -X POST \
+            -H "Content-Type: application/json" \
+            -H "Accept: application/json" \
+            -d '{"statements":[{"statement":"MATCH (n) RETURN count(n) AS c"}]}' \
+            "http://localhost:${{ matrix.port }}/db/neo4j/tx/commit")
+          echo "Response: ${RESPONSE}"
+          COUNT=$(echo "${RESPONSE}" | jq -r '.results[0].data[0].row[0]')
+          echo "Node count: ${COUNT}"
+          if [ -z "${COUNT}" ] || [ "${COUNT}" = "null" ] || [ "${COUNT}" -lt 1 ]; then
+            echo "Expected node count > 0, got: ${COUNT}"
+            docker logs coda-test
+            exit 1
+          fi
+          echo "KG verification passed: ${COUNT} nodes"
+
+      - name: Stop test container
+        if: always()
+        run: docker rm -f coda-test 2>/dev/null || true
+
+  build-arm64:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: app
+            dockerfile: Dockerfile.app
+          - name: inference
+            dockerfile: Dockerfile.inference
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image (arm64)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/arm64
+          push: false
+          cache-from: type=gha,scope=${{ matrix.name }}-arm64
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}-arm64
+
+  publish:
+    needs: [build-and-test, build-arm64]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: app
+            dockerfile: Dockerfile.app
+            image: gyorilab/coda.app
+            platforms: linux/amd64,linux/arm64
+            lfs: false
+          - name: inference
+            dockerfile: Dockerfile.inference
+            image: gyorilab/coda.inference
+            platforms: linux/amd64,linux/arm64
+            lfs: false
+          - name: kg
+            dockerfile: Dockerfile.kg
+            image: gyorilab/coda.kg
+            platforms: linux/amd64
+            lfs: true
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: ${{ matrix.lfs }}
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push image
+        id: docker_build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          platforms: ${{ matrix.platforms }}
+          tags: ${{ matrix.image }}:latest
+          push: true
+          cache-from: |
+            type=gha,scope=${{ matrix.name }}-amd64
+            type=gha,scope=${{ matrix.name }}-arm64
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}-publish
+
+      - name: Image digest
+        run: echo ${{ steps.docker_build.outputs.digest }}
