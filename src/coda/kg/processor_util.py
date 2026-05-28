@@ -160,4 +160,5 @@ def check_missing_node_ids_in_edges(exporters: list[KGSourceExporter], strict: b
             logger.info("Edges with missing node IDs found, wrote "
                         "list to missing_edges.tsv")
             df = pd.DataFrame(records)
-            df.to_csv("missing_edges.tsv", sep="\t", index=False)
+            df.to_csv(KG_BASE.join(name="missing_edges.tsv"),
+                      sep="\t", index=False)
