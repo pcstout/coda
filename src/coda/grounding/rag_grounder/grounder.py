@@ -1,7 +1,6 @@
 """
-RAG-based grounder wrapper with ICD-10 defaults.
+RAG-based grounder.
 """
-
 import logging
 from pathlib import Path
 
@@ -10,87 +9,65 @@ from gilda.process import normalize
 from gilda.scorer import generate_match
 from gilda.term import Term
 
-from coda import CODA_BASE
+from neo4j import GraphDatabase
+
 from coda.grounding import BaseGrounder
 from coda.llm_api import LLMClient, create_llm_client
 
 from .config import RAGGrounderConfig
-from .core import PipelineResult, RAGGrounderPipeline
-from .neo4j_utils import load_retrieval_terms
-from .retrieval_term import RetrievalTerm
-from .setup import setup_retrieval_grounder
+from .pipeline import RAGGrounderPipeline, PipelineResult
+from .utils import find_evidence_spans
+from .types import RetrievalTerm
 
 logger = logging.getLogger(__name__)
-
-def _default_cache_path(ontology: str) -> Path:
-    return Path(CODA_BASE.join("rag_grounder", "indexes", name=f"term_index.{ontology}.pkl"))
 
 
 class RagGrounder(BaseGrounder):
     """
-    RAG-based grounder with ICD-10 retrieval terms by default.
+    RAG-based grounder that extracts concepts from text and grounds them
+    to ontology terms using neo4j vector search and LLM re-ranking.
     """
 
     def __init__(
         self,
+        config_path: str | Path | None = None,
         llm_client: LLMClient | None = None,
-        llm_provider: str = "openai",
-        llm_model: str = "gpt-5.4-mini",
-        terms: list[RetrievalTerm] | None = None,
-        ontology: str = "icd10",
-        cache_path: str | Path | None = None,
-        force_rebuild: bool = False,
-        retrieval_model_name: str = "all-MiniLM-L6-v2",
-        concept_type: str = "disease",
-        retrieval_top_k: int = 10,
-        retrieval_min_similarity: float = 0.0,
     ):
         super().__init__()
-        self._llm_client = llm_client
-        self._llm_provider = llm_provider
-        self._llm_model = llm_model
-        self._terms = terms
-        self._ontology = ontology
-        self._cache_path = Path(cache_path) if cache_path is not None else _default_cache_path(ontology)
-        self._force_rebuild = force_rebuild
-        self._retrieval_model_name = retrieval_model_name
-        self._concept_type = concept_type
-        self._retrieval_top_k = retrieval_top_k
-        self._retrieval_min_similarity = retrieval_min_similarity
+        # Load RAG Grounder configuration
+        if config_path is not None:
+            self._config = RAGGrounderConfig.from_yaml(config_path)
+        else:
+            self._config = RAGGrounderConfig.default()
 
-        logger.info("Initializing RagGrounder with cache at %s", self._cache_path)
-        terms = self._terms if self._terms is not None else load_retrieval_terms(self._ontology)
-        term_store = setup_retrieval_grounder(
-            terms=terms,
-            model_name=self._retrieval_model_name,
-            cache_path=self._cache_path,
-            force_rebuild=self._force_rebuild,
-        )
-        llm_client = self._llm_client or create_llm_client(
-            provider=self._llm_provider,
-            model=self._llm_model,
-        )
-        config = RAGGrounderConfig(
-            term_store=term_store,
-            model_name=self._retrieval_model_name,
-            concept_type=self._concept_type,
-            retrieval_top_k=self._retrieval_top_k,
-            retrieval_min_similarity=self._retrieval_min_similarity,
-        )
-        self._pipeline = RAGGrounderPipeline(llm_client=llm_client, config=config)
+        # Initialize Neo4j driver
+        self._neo4j_driver = GraphDatabase.driver("bolt://localhost:7687", auth=None)
 
-    def _get_pipeline(self) -> RAGGrounderPipeline:
-        return self._pipeline
+        # Initialize LLM client
+        if llm_client is None:
+            # Default LLM client configuration
+            self._llm_client = create_llm_client(
+                provider="openai",
+                model="gpt-4o-mini"
+            )
+        else:
+            self._llm_client = llm_client
+
+        # Initialize RAG Grounder pipeline
+        self._pipeline = RAGGrounderPipeline(
+            llm_client=self._llm_client,
+            config=self._config,
+            neo4j_driver=self._neo4j_driver,
+        )
 
     @staticmethod
     def _make_term(term: RetrievalTerm) -> Term:
         db, raw_id = term.id.split(":", 1)
         entry_name = term.name.strip() if term.name else raw_id
-        text = entry_name
-        norm_text = normalize(text) if text else normalize(raw_id)
+        norm_text = normalize(entry_name) if entry_name else normalize(raw_id)
         return Term(
             norm_text=norm_text,
-            text=text,
+            text=entry_name,
             db=db,
             id=raw_id,
             entry_name=entry_name,
@@ -99,80 +76,45 @@ class RagGrounder(BaseGrounder):
         )
 
     def _annotation_matches(self, concept, span_text: str) -> list[ScoredMatch]:
-        score_by_id = {
-            term.id: float(score)
-            for term, score in concept.retrieved_terms
-        }
-
-        candidate_terms = concept.reranked_terms
-        if not candidate_terms:
-            candidate_terms = [term for term, _ in concept.retrieved_terms]
-
-        matches: list[ScoredMatch] = []
-        for term in candidate_terms:
-            term_obj = self._make_term(term)
-            matches.append(
-                ScoredMatch(
-                    term=term_obj,
-                    score=score_by_id.get(term.id, 0.0),
-                    match=generate_match(span_text, term_obj.text),
-                )
+        return [
+            ScoredMatch(
+                term=self._make_term(term),
+                score=score,
+                match=generate_match(span_text, term.name),
             )
-        return matches
+            for term, score in concept.matched_terms
+        ]
 
     def process(self, text: str) -> PipelineResult:
-        """
-        Process text through the full RAG pipeline.
-
-        This is the canonical API for concept-level grounding.
-        """
         if not text or not text.strip():
             return PipelineResult(text=text, Concepts=[])
-        return self._get_pipeline().process(text)
+        return self._pipeline.process(text)
 
     def ground(self, text: str) -> list[ScoredMatch]:
-        """Compatibility shim returning top match per extracted concept."""
         result = self.process(text)
         matches: list[ScoredMatch] = []
         for concept in result.Concepts:
-            span_text = concept.Concept or text
-            concept_matches = self._annotation_matches(concept, span_text=span_text)
+            concept_matches = self._annotation_matches(concept, span_text=concept.Concept or text)
             if concept_matches:
                 matches.append(concept_matches[0])
         return matches
 
-    def annotate(self, text: str) -> list[Annotation]:
-        """
-        Compatibility shim returning mention-style annotations.
-
-        Annotations are emitted for explicit concept mentions found in the
-        input text, with concept-level matches attached.
-        """
+    def annotate(self, text: str, min_similarity: float = 0.7) -> list[Annotation]:
         result = self.process(text)
         annotations: list[Annotation] = []
-
         for concept in result.Concepts:
-            concept_text = concept.Concept.strip()
-            if not concept_text:
+            if not concept.Concept.strip():
                 continue
-
-            matches = self._annotation_matches(concept, span_text=concept_text)
+            matches = self._annotation_matches(concept, span_text=concept.Concept)
             if not matches:
                 continue
-
-            # Emit one mention-level annotation per evidence span so offsets
-            # refer to real positions in the input text.
-            for evidence in concept.evidence_spans:
-                if evidence.start is None or evidence.end is None:
-                    continue
-                start = int(evidence.start)
-                end = int(evidence.end)
+            spans = find_evidence_spans(text, concept.supporting_evidence, min_similarity=min_similarity)
+            for start, end, _match_type, _matched_text, _similarity in spans:
                 if start < 0 or end > len(text) or end <= start:
                     continue
-                span_text = text[start:end]
                 annotations.append(
                     Annotation(
-                        text=span_text,
+                        text=text[start:end],
                         matches=matches,
                         start=start,
                         end=end,
