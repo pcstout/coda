@@ -2,6 +2,7 @@
 Term retrieval using neo4j vector search.
 """
 import logging
+import os
 from typing import List, Tuple
 
 from neo4j import GraphDatabase
@@ -24,7 +25,8 @@ class Retriever:
         top_k: int,
         min_similarity: float
     ):
-        self.driver = GraphDatabase.driver("bolt://localhost:7687", auth=None)
+        neo4j_url = os.getenv("NEO4J_URL", "bolt://localhost:7687")
+        self.driver = GraphDatabase.driver(neo4j_url, auth=None)
         self.ontology = ontology
         self.model_name = model_name
         self.top_k = top_k
