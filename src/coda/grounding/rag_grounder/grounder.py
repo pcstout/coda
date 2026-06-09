@@ -34,8 +34,16 @@ class RagGrounder(BaseGrounder):
         self,
         config_path: str | Path | None = None,
         llm_client: LLMClient | None = None,
+        log_path: str | Path | None = "logger.log",
     ):
         super().__init__()
+        if log_path is not None:
+            handler = logging.FileHandler(log_path, mode="w")
+            handler.setLevel(logging.DEBUG)
+            handler.setFormatter(logging.Formatter("%(asctime)s %(message)s", datefmt="%H:%M:%S"))
+            logger.parent.addHandler(handler)
+            logger.parent.setLevel(logging.DEBUG)
+
         # Initialize config from yaml if provided, else use default yaml file
         if config_path is not None:
             self.config = RAGGrounderConfig.from_yaml(config_path)
@@ -106,6 +114,10 @@ class RagGrounder(BaseGrounder):
 
         concepts_raw = extraction_result.get("Concepts", [])
         logger.info(f"Extraction completed in {step_times['extraction']:.2f}s, found {len(concepts_raw)} concept(s)")
+        for i, c in enumerate(concepts_raw, 1):
+            logger.debug("  Concept %d: %s", i, c.get("Concept", ""))
+            for ev in c.get("Supporting_Evidence", []):
+                logger.debug("    - %s", ev)
 
         if not concepts_raw:
             return {"text": text, "Concepts": []}
@@ -125,8 +137,10 @@ class RagGrounder(BaseGrounder):
             evidence_text = "\n".join(concept["supporting_evidence"])
             retrieval_text = f"{concept_name}\n\n{evidence_text}" if evidence_text else concept_name
             concept["matched_terms"] = self.retriever.retrieve(retrieval_text)
-            logger.debug(f"Retrieved {len(concept['matched_terms'])} terms for: {concept_name}")
-            
+            logger.debug("  Retrieved %d terms for: %s", len(concept["matched_terms"]), concept_name)
+            for j, (term, score) in enumerate(concept["matched_terms"], 1):
+                logger.debug("    %d. %s - %s (score: %.3f)", j, term.id, term.name, score)
+
         step_times["retrieval"] = time.time() - step2_start
         logger.info(f"Retrieval completed in {step_times['retrieval']:.2f}s")
 
@@ -140,7 +154,9 @@ class RagGrounder(BaseGrounder):
                 retrieved_terms=[term for term, _ in concept["matched_terms"]],
             )
             concept["matched_terms"] = [(term, score_by_id.get(term.id, 0.0)) for term in reranked]
-            logger.debug(f"Re-ranked {len(concept['matched_terms'])} terms for: {concept_name}")
+            logger.debug("  Reranked %d terms for: %s", len(concept["matched_terms"]), concept_name)
+            for j, (term, score) in enumerate(concept["matched_terms"], 1):
+                logger.debug("    %d. %s - %s (score: %.3f)", j, term.id, term.name, score)
         step_times["reranking"] = time.time() - step3_start
         logger.info(f"Re-ranking completed in {step_times['reranking']:.2f}s")
 

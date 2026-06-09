@@ -1,6 +1,7 @@
 """
 LLM-based re-ranking of retrieved terms.
 """
+import json
 import logging
 from typing import List
 
@@ -47,6 +48,11 @@ class Reranker:
             retrieved_terms=retrieved_terms_formatted,
         )
 
+        logger.debug(
+            "--- Reranker Input ---\n[System Prompt]\n%s\n\n[User Prompt]\n%s",
+            self.config.system_prompt, user_prompt,
+        )
+
         try:
             response_json = self.llm_client.call_with_schema(
                 system_prompt=self.config.system_prompt,
@@ -56,6 +62,7 @@ class Reranker:
                 max_retries=3,
                 retry_delay=1.0,
             )
+            logger.debug("--- Reranker Raw Output ---\n%s", json.dumps(response_json, indent=2))
 
             if response_json.get("api_failed", False):
                 logger.error("LLM API call failed")

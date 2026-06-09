@@ -37,6 +37,11 @@ class Extractor:
             text=text,
         )
 
+        logger.debug(
+            "--- Extractor Input ---\n[System Prompt]\n%s\n\n[User Prompt]\n%s",
+            system_prompt, user_prompt,
+        )
+
         try:
             if self.config.use_schema:
                 response_json = self.llm_client.call_with_schema(
@@ -47,6 +52,7 @@ class Extractor:
                     max_retries=3,
                     retry_delay=1.0,
                 )
+                logger.debug("--- Extractor Raw Output ---\n%s", json.dumps(response_json, indent=2))
                 if response_json.get("api_failed", False):
                     logger.error("LLM API call failed")
                     return {"Concepts": []}
@@ -56,6 +62,10 @@ class Extractor:
                     system_prompt=system_prompt,
                     user_prompt=user_prompt,
                 )
+                try:
+                    logger.debug("--- Extractor Raw Output ---\n%s", json.dumps(json.loads(response_text), indent=2))
+                except (json.JSONDecodeError, TypeError):
+                    logger.debug("--- Extractor Raw Output ---\n%s", response_text)
                 try:
                     concepts_raw = json.loads(response_text)
                 except (json.JSONDecodeError, TypeError):
