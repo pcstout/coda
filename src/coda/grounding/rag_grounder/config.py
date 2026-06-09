@@ -4,7 +4,7 @@ from typing import Any, Dict
 
 import yaml
 
-_DEFAULT_CONFIG_PATH = Path(__file__).parent / "default_config.yaml"
+_DEFAULT_CONFIG_PATH = Path(__file__).parent / "grounder_config" / "icd10_config.yaml"
 
 
 @dataclass

@@ -23,7 +23,15 @@ from coda import CODA_BASE
 from coda.dialogue.whisper import WhisperTranscriber
 from coda.dialogue import AudioProcessor
 from coda.grounding.gilda_grounder import GildaGrounder
+from pathlib import Path
+
 from coda.grounding.rag_grounder import RagGrounder
+
+_GROUNDER_CONFIG_DIR = Path(__file__).parent.parent / "grounding/rag_grounder/grounder_config"
+_ONTOLOGY_CONFIGS = {
+    "icd10": _GROUNDER_CONFIG_DIR / "icd10_config.yaml",
+    "icd11": _GROUNDER_CONFIG_DIR / "icd11_config.yaml",
+}
 from coda.llm_api import create_llm_client
 
 app = FastAPI()
@@ -79,7 +87,7 @@ def get_language_name(code: str) -> str:
 
 def create_grounder(grounder_name: str, rag_ontology: str = "icd10"):
     if grounder_name == "rag":
-        return RagGrounder(ontology=rag_ontology)
+        return RagGrounder(config_path=_ONTOLOGY_CONFIGS.get(rag_ontology))
     return GildaGrounder()
 
 

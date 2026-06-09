@@ -23,7 +23,7 @@ result = grounder.process(text)
 
 ## Configuration
 
-Configuration is a YAML file with four sections. See `default_config.yaml` for the full example.
+Configuration is a YAML file with four sections. See `grounder_config/icd10_config.yaml` for a full example.
 
 ```yaml
 concept_type: disease
@@ -32,7 +32,7 @@ llm:
   model: gpt-4o-mini
 
 extractor:
-  prompt_config_path: "prompt_configs/extractor_default.yaml"
+  prompt_config_path: "../prompt_configs/extractor_default.yaml"
 
 retriever:
   ontology: icd10          # ontology loaded into neo4j
@@ -57,6 +57,7 @@ Paths in `prompt_config_path` are resolved relative to the config file's locatio
 | `config.py` | Dataclasses for config and `PromptConfig` |
 | `types.py` | `RetrievalTerm` dataclass |
 | `utils.py` | Evidence span finding |
+| `grounder_config/` | Built-in grounder configs (`icd10_config.yaml`, `icd11_config.yaml`) |
 | `prompt_configs/` | YAML prompt configs for extractor and reranker |
 
 ## Requirements

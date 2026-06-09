@@ -32,11 +32,11 @@ query_fields:
 
 ## Custom configs
 
-Create a new YAML file following the structure of an existing config, then point to it from `default_config.yaml` (or your own config file):
+Create a new YAML file following the structure of an existing config, then point to it from your grounder config (e.g. `grounder_config/icd10_config.yaml`):
 
 ```yaml
 concept_type: procedure
 
 extractor:
-  prompt_config_path: "path/to/my_extractor.yaml"
+  prompt_config_path: "../prompt_configs/my_extractor.yaml"
 ```
