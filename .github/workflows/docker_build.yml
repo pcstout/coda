@@ -12,9 +12,9 @@ env:
   OPENAI_API_KEY_SMOKE_TEST: sk-ci-dummy-key
 
 jobs:
-  # PR path: build per (image, platform) without pushing.
-  # amd64 rows also run the smoke test (and Cypher verify for kg).
-  # No Docker Hub credentials are used.
+  # PR path: build and smoke test amd64 images only, without pushing
+  # (and Cypher verify for kg). Multi-arch is built post-merge in the
+  # approved build/publish path. No Docker Hub credentials are used.
   test:
     if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main')
     runs-on: ubuntu-latest
@@ -34,14 +34,6 @@ jobs:
             needs_openai_key: false
             lfs: false
             smoke_test: true
-          - name: app
-            dockerfile: Dockerfile.app
-            image: gyorilab/coda.app
-            build_args: COMPUTE_DEVICE=cpu
-            platform: linux/arm64
-            platform_pair: linux-arm64
-            lfs: false
-            smoke_test: false
           - name: inference
             dockerfile: Dockerfile.inference
             image: gyorilab/coda.inference
@@ -53,13 +45,6 @@ jobs:
             needs_openai_key: true
             lfs: false
             smoke_test: true
-          - name: inference
-            dockerfile: Dockerfile.inference
-            image: gyorilab/coda.inference
-            platform: linux/arm64
-            platform_pair: linux-arm64
-            lfs: false
-            smoke_test: false
           - name: kg
             dockerfile: Dockerfile.kg
             image: gyorilab/coda.kg
@@ -73,19 +58,15 @@ jobs:
             smoke_test: true
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           lfs: ${{ matrix.lfs }}
 
-      - name: Set up QEMU
-        if: matrix.platform != 'linux/amd64'
-        uses: docker/setup-qemu-action@v3
-
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Build image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: ${{ matrix.dockerfile }}
@@ -219,28 +200,35 @@ jobs:
             needs_openai_key: false
             lfs: true
             smoke_test: true
+          - name: kg
+            dockerfile: Dockerfile.kg
+            image: gyorilab/coda.kg
+            platform: linux/arm64
+            platform_pair: linux-arm64
+            lfs: true
+            smoke_test: false
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           lfs: ${{ matrix.lfs }}
 
       - name: Set up QEMU
         if: matrix.platform != 'linux/amd64'
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@v4
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Log in to Docker Hub
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Build and push by digest
         id: build_push
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: ${{ matrix.dockerfile }}
@@ -314,7 +302,7 @@ jobs:
           touch "/tmp/digests/${digest#sha256:}"
 
       - name: Upload digest
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: digests-${{ matrix.name }}-${{ matrix.platform_pair }}
           path: /tmp/digests/*
@@ -339,17 +327,17 @@ jobs:
 
     steps:
       - name: Download digests
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           path: /tmp/digests
           pattern: digests-${{ matrix.name }}-*
           merge-multiple: true
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Log in to Docker Hub
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
