@@ -50,30 +50,77 @@ class RagGrounder(BaseGrounder):
         else:
             self.config = RAGGrounderConfig.default()
 
-        # Initialize LLM client 
+        # Initialize LLM client
         if llm_client is None:
-            self.llm_client = create_llm_client(provider="openai", model="gpt-4o-mini")
+            self.llm_client = create_llm_client(
+                provider=self.config.llm.provider, model=self.config.llm.model)
         else:
             self.llm_client = llm_client
 
-        # Initialize Extractor from config and client
-        self.extractor = Extractor(
+        # Build pipeline components from config
+        self.extractor = self._build_extractor()
+        self.retriever = self._build_retriever()
+        self.reranker = self._build_reranker()
+
+    def _build_extractor(self) -> Extractor:
+        return Extractor(
             concept_type=self.config.concept_type,
             prompt_config_path=self.config.extractor.prompt_config_path,
-            llm_client=self.llm_client
+            llm_client=self.llm_client,
         )
-        # Initialize Retriever from config and client
-        self.retriever = Retriever(
+
+    def _build_retriever(self) -> Retriever:
+        return Retriever(
             ontology=self.config.retriever.ontology,
             model_name=self.config.retriever.embedding_model,
             top_k=self.config.retriever.top_k,
             min_similarity=self.config.retriever.min_similarity,
         )
-        # Initialize Reranker from config and client
-        self.reranker = Reranker(
+
+    def _build_reranker(self) -> Reranker | None:
+        if not self.config.reranker.enabled:
+            return None
+        return Reranker(
             llm_client=self.llm_client,
             prompt_config_path=self.config.reranker.prompt_config_path,
         )
+
+    def update_config(
+        self,
+        provider: str | None = None,
+        model: str | None = None,
+        ontology: str | None = None,
+        use_reranker: bool | None = None,
+    ) -> None:
+        # Record which components are affected by actual config changes
+        rebuild_set = set()
+        if provider is not None and provider != self.config.llm.provider:
+            self.config.llm.provider = provider
+            rebuild_set.add("llm")
+        if model is not None and model != self.config.llm.model:
+            self.config.llm.model = model
+            rebuild_set.add("llm")
+        if ontology is not None and ontology != self.config.retriever.ontology:
+            self.config.retriever.ontology = ontology
+            rebuild_set.add("retriever")
+        if use_reranker is not None and use_reranker != self.config.reranker.enabled:
+            self.config.reranker.enabled = use_reranker
+            rebuild_set.add("reranker")
+
+        # Rebuild affected components
+        if "llm" in rebuild_set:
+            # llm update means extractor and reranker has to be updated
+            rebuild_set.add("extractor")
+            rebuild_set.add("reranker")
+            # Rebuild llm client
+            self.llm_client = create_llm_client(
+                provider=self.config.llm.provider, model=self.config.llm.model)
+        if "extractor" in rebuild_set:
+            self.extractor = self._build_extractor()
+        if "retriever" in rebuild_set:
+            self.retriever = self._build_retriever()
+        if "reranker" in rebuild_set:
+            self.reranker = self._build_reranker()
 
     @staticmethod
     def _make_term(term: RetrievalTerm) -> Term:
@@ -144,21 +191,25 @@ class RagGrounder(BaseGrounder):
         step_times["retrieval"] = time.time() - step2_start
         logger.info(f"Retrieval completed in {step_times['retrieval']:.2f}s")
 
-        step3_start = time.time()
-        for concept in tqdm(concepts, desc="Reranking terms", leave=False, disable=len(concepts) <= 1):
-            concept_name = concept["Concept"]
-            score_by_id = {term.id: score for term, score in concept["matched_terms"]}
-            reranked = self.reranker.rerank(
-                concept=concept_name,
-                evidences=concept["supporting_evidence"],
-                retrieved_terms=[term for term, _ in concept["matched_terms"]],
-            )
-            concept["matched_terms"] = [(term, score_by_id.get(term.id, 0.0)) for term in reranked]
-            logger.debug("  Reranked %d terms for: %s", len(concept["matched_terms"]), concept_name)
-            for j, (term, score) in enumerate(concept["matched_terms"], 1):
-                logger.debug("    %d. %s - %s (score: %.3f)", j, term.id, term.name, score)
-        step_times["reranking"] = time.time() - step3_start
-        logger.info(f"Re-ranking completed in {step_times['reranking']:.2f}s")
+        if self.reranker is not None:
+            step3_start = time.time()
+            for concept in tqdm(concepts, desc="Reranking terms", leave=False, disable=len(concepts) <= 1):
+                concept_name = concept["Concept"]
+                score_by_id = {term.id: score for term, score in concept["matched_terms"]}
+                reranked = self.reranker.rerank(
+                    concept=concept_name,
+                    evidences=concept["supporting_evidence"],
+                    retrieved_terms=[term for term, _ in concept["matched_terms"]],
+                )
+                concept["matched_terms"] = [(term, score_by_id.get(term.id, 0.0)) for term in reranked]
+                logger.debug("  Reranked %d terms for: %s", len(concept["matched_terms"]), concept_name)
+                for j, (term, score) in enumerate(concept["matched_terms"], 1):
+                    logger.debug("    %d. %s - %s (score: %.3f)", j, term.id, term.name, score)
+            step_times["reranking"] = time.time() - step3_start
+            logger.info(f"Re-ranking completed in {step_times['reranking']:.2f}s")
+        else:
+            step_times["reranking"] = 0.0
+            logger.info("Re-ranking disabled, skipping")
 
         total_time = time.time() - total_start
         logger.info(

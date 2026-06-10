@@ -76,8 +76,8 @@ class Extractor:
                 logger.warning("Unexpected response: concepts is not a list")
                 return {"Concepts": []}
 
-            concept_field = self.config.query_fields["concept"]
-            evidence_field = self.config.query_fields["supporting_evidence"]
+            concept_field = self.config.concept_key
+            evidence_field = self.config.supporting_evidence_key
             concepts = []
             for c in concepts_raw:
                 if not isinstance(c, dict):

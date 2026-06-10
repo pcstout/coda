@@ -1,6 +1,7 @@
 concept_type: disease
 
 llm:
+  provider: openai
   model: gpt-4o-mini
 
 extractor:
@@ -13,4 +14,5 @@ retriever:
   min_similarity: 0.0
 
 reranker:
+  enabled: true
   prompt_config_path: "../prompt_configs/reranker_default.yaml"

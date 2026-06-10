@@ -33,6 +33,5 @@ user_prompt: |
   Output only the JSON and nothing else.
   Output:
 
-query_fields:
-  concept: Disease
-  supporting_evidence: Supporting Evidence
+concept_key: Disease
+supporting_evidence_field: Supporting Evidence

@@ -300,14 +300,35 @@
                                                 <option value="rag">RAG</option>
                                             </select>
                                         </div>
-                                        <div class="col-auto" id="ragOntologyRow" style="display: none;">
+                                        <div class="col-auto rag-option" style="display: none;">
+                                            <label for="ragProviderSelect" class="mb-0">RAG Provider</label>
+                                        </div>
+                                        <div class="col-auto rag-option" style="display: none;">
+                                            <select id="ragProviderSelect" class="form-select form-select-sm" style="width: auto;">
+                                                <option value="openai">OpenAI</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-auto rag-option" style="display: none;">
+                                            <label for="ragModelSelect" class="mb-0">Model</label>
+                                        </div>
+                                        <div class="col-auto rag-option" style="display: none;">
+                                            <select id="ragModelSelect" class="form-select form-select-sm" style="width: auto;">
+                                            </select>
+                                        </div>
+                                        <div class="col-auto rag-option" style="display: none;">
                                             <label for="ragOntologySelect" class="mb-0">Ontology</label>
                                         </div>
-                                        <div class="col-auto" id="ragOntologySelectCol" style="display: none;">
+                                        <div class="col-auto rag-option" style="display: none;">
                                             <select id="ragOntologySelect" class="form-select form-select-sm" style="width: auto;">
                                                 <option value="icd10">ICD-10</option>
                                                 <option value="icd11">ICD-11</option>
                                             </select>
+                                        </div>
+                                        <div class="col-auto rag-option" style="display: none;">
+                                            <div class="form-check form-switch mb-0">
+                                                <input class="form-check-input" type="checkbox" id="ragRerankerToggle" checked>
+                                                <label class="form-check-label" for="ragRerankerToggle">Reranker</label>
+                                            </div>
                                         </div>
                                         <div class="col-auto">
                                             <div class="form-check form-switch mb-0">
@@ -332,13 +353,16 @@
                                     </div>
                                     <div class="row g-2 align-items-center mt-1" id="llmSettingsRow" style="display: none;">
                                         <div class="col-auto">
-                                            <label for="llmProviderSelect" class="mb-0">Translation LLM</label>
+                                            <label for="llmProviderSelect" class="mb-0">Translation Provider</label>
                                         </div>
                                         <div class="col-auto">
                                             <select id="llmProviderSelect" class="form-select form-select-sm" style="width: auto;">
                                                 <option value="openai">OpenAI</option>
                                                 <option value="ollama">Ollama</option>
                                             </select>
+                                        </div>
+                                        <div class="col-auto">
+                                            <label for="llmModelInput" class="mb-0">Model</label>
                                         </div>
                                         <div class="col-auto">
                                             <input type="text" id="llmModelInput" class="form-control form-control-sm"
@@ -512,9 +536,11 @@
         const filePathText = document.getElementById('filePathText');
         const whisperModelSelect = document.getElementById('whisperModelSelect');
         const grounderSelect = document.getElementById('grounderSelect');
+        const ragProviderSelect = document.getElementById('ragProviderSelect');
+        const ragModelSelect = document.getElementById('ragModelSelect');
         const ragOntologySelect = document.getElementById('ragOntologySelect');
-        const ragOntologyRow = document.getElementById('ragOntologyRow');
-        const ragOntologySelectCol = document.getElementById('ragOntologySelectCol');
+        const ragRerankerToggle = document.getElementById('ragRerankerToggle');
+        const ragOptionEls = document.querySelectorAll('.rag-option');
         const whisperWarning = document.getElementById('whisperWarning');
         const translationRow = document.getElementById('translationRow');
         const translationModeSelect = document.getElementById('translationModeSelect');
@@ -535,10 +561,33 @@
             llmSettingsRow.style.display = (isNonEnglish && translationModeSelect.value === 'llm') ? 'flex' : 'none';
         }
 
-        function updateRagOntologyVisibility() {
+        // Models offered per RAG LLM provider
+        const ragModels = {
+            openai: ['gpt-4o-mini', 'gpt-4o', 'gpt-5.4-mini'],
+        };
+
+        function populateRagModels(provider, selected) {
+            ragModelSelect.innerHTML = '';
+            const models = ragModels[provider] || [];
+            models.forEach(m => {
+                const opt = document.createElement('option');
+                opt.value = m;
+                opt.textContent = m;
+                ragModelSelect.appendChild(opt);
+            });
+            // Keep showing a model that isn't in the list (e.g. set via the API)
+            if (selected && !models.includes(selected)) {
+                const opt = document.createElement('option');
+                opt.value = selected;
+                opt.textContent = selected;
+                ragModelSelect.appendChild(opt);
+            }
+            if (selected) ragModelSelect.value = selected;
+        }
+
+        function updateRagVisibility() {
             const isRag = grounderSelect.value === 'rag';
-            ragOntologyRow.style.display = isRag ? '' : 'none';
-            ragOntologySelectCol.style.display = isRag ? '' : 'none';
+            ragOptionEls.forEach(el => el.style.display = isRag ? '' : 'none');
         }
 
         // Show/hide whisper warning for large models
@@ -574,8 +623,11 @@
                 saveToggle.checked = data.save_enabled;
                 whisperModelSelect.value = data.whisper_model;
                 grounderSelect.value = data.grounder || 'gilda';
+                ragProviderSelect.value = data.rag_provider || 'openai';
+                populateRagModels(ragProviderSelect.value, data.rag_model);
                 ragOntologySelect.value = data.rag_ontology || 'icd10';
-                updateRagOntologyVisibility();
+                ragRerankerToggle.checked = data.rag_use_reranker !== false;
+                updateRagVisibility();
                 llmProviderSelect.value = data.llm_provider;
                 llmModelInput.value = data.llm_model;
                 translationModeSelect.value = data.translation_mode;
@@ -643,12 +695,26 @@
         });
 
         grounderSelect.addEventListener('change', () => {
-            updateRagOntologyVisibility();
+            updateRagVisibility();
             updateSettings({grounder: grounderSelect.value});
+        });
+
+        ragProviderSelect.addEventListener('change', () => {
+            const provider = ragProviderSelect.value;
+            populateRagModels(provider, (ragModels[provider] || [])[0]);
+            updateSettings({rag_provider: provider, rag_model: ragModelSelect.value});
+        });
+
+        ragModelSelect.addEventListener('change', () => {
+            updateSettings({rag_model: ragModelSelect.value});
         });
 
         ragOntologySelect.addEventListener('change', () => {
             updateSettings({rag_ontology: ragOntologySelect.value});
+        });
+
+        ragRerankerToggle.addEventListener('change', () => {
+            updateSettings({rag_use_reranker: ragRerankerToggle.checked});
         });
 
         llmProviderSelect.addEventListener('change', () => {
@@ -682,7 +748,10 @@
                 languageSelect.disabled = true;
                 whisperModelSelect.disabled = true;
                 grounderSelect.disabled = true;
+                ragProviderSelect.disabled = true;
+                ragModelSelect.disabled = true;
                 ragOntologySelect.disabled = true;
+                ragRerankerToggle.disabled = true;
 
                 // Connect to WebSocket
                 const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -880,7 +949,10 @@
             languageSelect.disabled = false;
             whisperModelSelect.disabled = false;
             grounderSelect.disabled = false;
+            ragProviderSelect.disabled = false;
+            ragModelSelect.disabled = false;
             ragOntologySelect.disabled = false;
+            ragRerankerToggle.disabled = false;
         }
 
         recordBtn.addEventListener('click', () => {

@@ -26,12 +26,6 @@ from coda.grounding.gilda_grounder import GildaGrounder
 from pathlib import Path
 
 from coda.grounding.rag_grounder import RagGrounder
-
-_GROUNDER_CONFIG_DIR = Path(__file__).parent.parent / "grounding/rag_grounder/grounder_config"
-_ONTOLOGY_CONFIGS = {
-    "icd10": _GROUNDER_CONFIG_DIR / "icd10_config.yaml",
-    "icd11": _GROUNDER_CONFIG_DIR / "icd11_config.yaml",
-}
 from coda.llm_api import create_llm_client
 
 app = FastAPI()
@@ -61,7 +55,14 @@ save_files: Dict[str, object] = {}  # open file handles keyed by language code
 transcripts_dir = CODA_BASE.join(name="transcripts")
 current_whisper_model = "medium"
 current_grounder = "gilda"
-current_rag_ontology = "icd10"
+# RAG grounder settings, applied to the grounder via RagGrounder.update_config
+rag_config = {
+    "provider": "openai",
+    "model": "gpt-4o-mini",
+    "ontology": "icd10",
+    "use_reranker": True,
+}
+# Translation LLM settings (separate from the RAG grounder's LLM)
 current_llm_provider = "openai"
 current_llm_model = "gpt-5.4-mini"
 # "whisper_translate" = use whisper task="translate" (direct speech-to-English)
@@ -75,7 +76,10 @@ class SettingsRequest(BaseModel):
     save_enabled: Optional[bool] = None
     whisper_model: Optional[str] = None
     grounder: Optional[str] = None
+    rag_provider: Optional[str] = None
+    rag_model: Optional[str] = None
     rag_ontology: Optional[str] = None
+    rag_use_reranker: Optional[bool] = None
     llm_provider: Optional[str] = None
     llm_model: Optional[str] = None
     translation_mode: Optional[str] = None
@@ -85,14 +89,16 @@ def get_language_name(code: str) -> str:
     return LANGUAGE_NAMES.get(code, code)
 
 
-def create_grounder(grounder_name: str, rag_ontology: str = "icd10"):
+def create_grounder(grounder_name: str):
     if grounder_name == "rag":
-        return RagGrounder(config_path=_ONTOLOGY_CONFIGS.get(rag_ontology))
+        grounder = RagGrounder()
+        grounder.update_config(**rag_config)
+        return grounder
     return GildaGrounder()
 
 
 transcriber = WhisperTranscriber(
-    grounder=create_grounder(current_grounder, current_rag_ontology),
+    grounder=create_grounder(current_grounder),
     model_size=current_whisper_model,
 )
 
@@ -283,7 +289,10 @@ async def get_settings():
         "file_paths": file_paths,
         "whisper_model": current_whisper_model,
         "grounder": current_grounder,
-        "rag_ontology": current_rag_ontology,
+        "rag_provider": rag_config["provider"],
+        "rag_model": rag_config["model"],
+        "rag_ontology": rag_config["ontology"],
+        "rag_use_reranker": rag_config["use_reranker"],
         "llm_provider": current_llm_provider,
         "llm_model": current_llm_model,
         "translation_mode": translation_mode,
@@ -296,8 +305,9 @@ async def update_settings(req: SettingsRequest):
     global current_language, save_enabled, transcriber
     global current_whisper_model, current_llm_provider, current_llm_model
     global translation_mode
-    global current_grounder, current_rag_ontology
-    reload_transcriber = False
+    global current_grounder
+    grounder_changed = False
+    whisper_changed = False
     if req.language is not None:
         current_language = req.language
         logger.info(f"Language set to: {current_language}")
@@ -315,23 +325,40 @@ async def update_settings(req: SettingsRequest):
             grounder = "gilda"
         if grounder != current_grounder:
             current_grounder = grounder
-            reload_transcriber = True
+            grounder_changed = True
             logger.info(f"Grounder set to: {current_grounder}")
-    if req.rag_ontology is not None and req.rag_ontology != current_rag_ontology:
-        current_rag_ontology = req.rag_ontology
-        reload_transcriber = True
-        logger.info(f"RAG ontology set to: {current_rag_ontology}")
+    rag_updated = False
+    if req.rag_provider is not None:
+        rag_config["provider"] = req.rag_provider
+        rag_updated = True
+    if req.rag_model is not None:
+        rag_config["model"] = req.rag_model
+        rag_updated = True
+    if req.rag_ontology is not None:
+        rag_config["ontology"] = req.rag_ontology
+        rag_updated = True
+    if req.rag_use_reranker is not None:
+        rag_config["use_reranker"] = req.rag_use_reranker
+        rag_updated = True
+    if rag_updated:
+        if isinstance(transcriber.grounder, RagGrounder):
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(
+                None, lambda: transcriber.grounder.update_config(**rag_config)
+            )
+        logger.info(f"RAG grounder config updated: {rag_config}")
     if req.whisper_model is not None and req.whisper_model != current_whisper_model:
         current_whisper_model = req.whisper_model
-        reload_transcriber = True
+        whisper_changed = True
         logger.info(f"Whisper model set to: {current_whisper_model}")
-    if reload_transcriber:
-        # Reload transcriber if either model or grounder settings are touched.
+    if whisper_changed:
+        # Reload Whisper, reusing the existing grounder unless it also changed
         loop = asyncio.get_running_loop()
         new_transcriber = await loop.run_in_executor(
             None,
             lambda: WhisperTranscriber(
-                grounder=create_grounder(current_grounder, current_rag_ontology),
+                grounder=(create_grounder(current_grounder)
+                          if grounder_changed else transcriber.grounder),
                 model_size=current_whisper_model,
             ),
         )
@@ -340,6 +367,12 @@ async def update_settings(req: SettingsRequest):
             "Transcriber reloaded with model=%s grounder=%s",
             current_whisper_model,
             current_grounder,
+        )
+    elif grounder_changed:
+        # Swap the grounder in place; no Whisper reload needed
+        loop = asyncio.get_running_loop()
+        transcriber.grounder = await loop.run_in_executor(
+            None, create_grounder, current_grounder
         )
     if req.llm_provider is not None:
         current_llm_provider = req.llm_provider
@@ -357,7 +390,10 @@ async def update_settings(req: SettingsRequest):
         "file_paths": file_paths,
         "whisper_model": current_whisper_model,
         "grounder": current_grounder,
-        "rag_ontology": current_rag_ontology,
+        "rag_provider": rag_config["provider"],
+        "rag_model": rag_config["model"],
+        "rag_ontology": rag_config["ontology"],
+        "rag_use_reranker": rag_config["use_reranker"],
         "llm_provider": current_llm_provider,
         "llm_model": current_llm_model,
         "translation_mode": translation_mode,

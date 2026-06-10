@@ -9,7 +9,7 @@ _DEFAULT_CONFIG_PATH = Path(__file__).parent / "grounder_config" / "icd10_config
 
 @dataclass
 class ExtractorConfig:
-    prompt_config_path: Path
+    prompt_config_path: str
 
 
 @dataclass
@@ -25,12 +25,14 @@ class RetrieverConfig:
 
 @dataclass
 class RerankerConfig:
-    prompt_config_path: Path
+    enabled: bool
+    prompt_config_path: str
 
 
 @dataclass
 class LLMConfig:
     model: str
+    provider: str
 
 
 @dataclass
@@ -38,19 +40,23 @@ class PromptConfig:
     use_schema: bool
     system_prompt: str
     user_prompt: str
-    query_fields: Dict[str, str]
     schema: Dict[str, Any]
 
+    # Only used by extractor
+    concept_key: str | None = None
+    supporting_evidence_key: str | None = None
+
     @classmethod
-    def from_yaml(cls, path: Path) -> "PromptConfig":
+    def from_yaml(cls, path: str) -> "PromptConfig":
         with open(path) as f:
             data = yaml.safe_load(f)
         return cls(
-            use_schema=data.get("use_schema", True),
-            system_prompt=data.get("system_prompt") or "",
+            use_schema=data["use_schema"],
+            system_prompt=data["system_prompt"],
             user_prompt=data["user_prompt"],
-            query_fields=data.get("query_fields", {"concept": "Concept", "supporting_evidence": "Supporting_Evidence"}),
-            schema=data.get("schema", {}),
+            schema=data["schema"],
+            concept_key=data.get("concept_key"),
+            supporting_evidence_key=data.get("supporting_evidence_key"),
         )
 
 
@@ -65,23 +71,22 @@ class RAGGrounderConfig:
     @classmethod
     def from_yaml(cls, path: str | Path = _DEFAULT_CONFIG_PATH) -> "RAGGrounderConfig":
         path = Path(path)
-        config_dir = path.parent
         with open(path) as f:
             data = yaml.safe_load(f)
         concept_type = data.get("concept_type", "disease")
-        extractor_data = data.get("extractor", {})
-        reranker_data = data.get("reranker", {})
-        return cls(
+        config = cls(
             concept_type=concept_type,
             llm=LLMConfig(**data.get("llm", {})),
-            extractor=ExtractorConfig(
-                prompt_config_path=(config_dir / extractor_data["prompt_config_path"]).resolve(),
-            ),
+            extractor=ExtractorConfig(**data.get("extractor", {})),
             retriever=RetrieverConfig(**data.get("retriever", {})),
-            reranker=RerankerConfig(
-                prompt_config_path=(config_dir / reranker_data["prompt_config_path"]).resolve(),
-            )
+            reranker=RerankerConfig(**data.get("reranker", {}))
         )
+        # Resolve prompt_config_path (relative to the config file's directory)
+        # to an absolute path so it opens regardless of the current working dir.
+        config.extractor.prompt_config_path = str((path.parent / config.extractor.prompt_config_path).resolve())
+        if config.reranker.enabled:
+            config.reranker.prompt_config_path = str((path.parent / config.reranker.prompt_config_path).resolve())
+        return config
 
     @classmethod
     def default(cls) -> "RAGGrounderConfig":

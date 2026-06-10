@@ -16,10 +16,6 @@ user_prompt: |
   Text:
   {text}
 
-query_fields:
-  concept: Concept
-  supporting_evidence: Supporting_Evidence
-
 schema:
   type: object
   properties:
@@ -38,3 +34,6 @@ schema:
         additionalProperties: false
   required: [Concepts]
   additionalProperties: false
+
+concept_key: Concept
+supporting_evidence_key: Supporting_Evidence
