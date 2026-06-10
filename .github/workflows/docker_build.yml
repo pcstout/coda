@@ -200,6 +200,13 @@ jobs:
             needs_openai_key: false
             lfs: true
             smoke_test: true
+          - name: kg
+            dockerfile: Dockerfile.kg
+            image: gyorilab/coda.kg
+            platform: linux/arm64
+            platform_pair: linux-arm64
+            lfs: true
+            smoke_test: false
 
     steps:
       - uses: actions/checkout@v4
