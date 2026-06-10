@@ -38,6 +38,10 @@ dependencies = [
     "httpx>=0.25.0",
     "openai>=1.0.0",
     "ollama>=0.1.0",
+    "sentence-transformers",
+    "scikit-learn",
+    "neo4j",
+    "pyyaml",
 ]
 
 [project.optional-dependencies]
@@ -48,7 +52,7 @@ test = [
 kg_build = [
     "openpyxl",
     "xlrd",
-    "indra",
+    "indra @ git+https://github.com/gyorilab/indra.git",
     "openacme[embeddings] @ git+https://github.com/gyorilab/openacme.git",
 ]
 
@@ -64,6 +68,7 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 "coda.app" = ["templates/*.html"]
+"coda.grounding.rag_grounder" = ["grounder_config/*.yaml", "prompt_configs/*.yaml"]
 "coda.resources" = ["*.csv", "*.tsv", "*.json", "champs/*.txt", "champs/*.tsv"]
 
 [tool.setuptools.dynamic]

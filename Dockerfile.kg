@@ -97,7 +97,7 @@ RUN --mount=type=bind,source=kg,target=/sw/kg \
 
 
 ENV DOCKERIZED="TRUE"
-ENV NEO4J_URL="bolt://localhost:7687"
+ENV CODA_KG_URL="bolt://localhost:7687"
 
 COPY docker_startup.sh  /sw/startup.sh
 

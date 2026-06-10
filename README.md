@@ -93,14 +93,6 @@ This starts three services:
 
 Access the web UI at http://localhost:8000 and Neo4j browser at http://localhost:7474.
 
-### Building and running the knowledge graph only
-
-To build and run just the CODA knowledge graph:
-
-```bash
-docker build --tag coda.kg:latest -f Dockerfile.kg .
-docker run -it -p 7687:7687 -p 7474:7474 coda.kg:latest
-```
 
 Running CODA locally with Python
 ---------------------------------
