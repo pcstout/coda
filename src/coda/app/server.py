@@ -32,7 +32,7 @@ app = FastAPI()
 
 
 # HTTP client for inference agent
-INFERENCE_URL = os.getenv("INFERENCE_URL", "http://localhost:5123")
+INFERENCE_URL = os.getenv("CODA_INFERENCE_URL", "http://localhost:5123")
 inference_client = httpx.AsyncClient(base_url=INFERENCE_URL, timeout=120.0)
 
 # Queue management for backpressure

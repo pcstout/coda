@@ -25,7 +25,7 @@ class Retriever:
         top_k: int,
         min_similarity: float
     ):
-        neo4j_url = os.getenv("NEO4J_URL", "bolt://localhost:7687")
+        neo4j_url = os.getenv("CODA_KG_URL", "bolt://localhost:7687")
         self.driver = GraphDatabase.driver(neo4j_url, auth=None)
         self.ontology = ontology
         self.model_name = model_name

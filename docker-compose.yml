@@ -45,8 +45,8 @@ services:
       - path: .env
         required: false
     environment:
-      - INFERENCE_URL=http://inference:5123
-      - NEO4J_URL=bolt://kg:7687
+      - CODA_INFERENCE_URL=http://inference:5123
+      - CODA_KG_URL=bolt://kg:7687
     depends_on:
       inference:
         condition: service_healthy
