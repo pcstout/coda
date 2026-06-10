@@ -49,8 +49,7 @@ test = [
 kg_build = [
     "openpyxl",
     "xlrd",
-    "indra",
-    "pysb @ git+https://github.com/pysb/pysb.git",
+    "indra @ git+https://github.com/gyorilab/indra.git",
     "openacme[embeddings] @ git+https://github.com/gyorilab/openacme.git",
     "sentence-transformers",
 ]
