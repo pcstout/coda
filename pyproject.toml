@@ -33,12 +33,15 @@ dependencies = [
     "uvicorn[standard]>=0.24.0",
     "websockets>=12.0",
     "openai-whisper>=20231117",
-    "torch>=2.5.0",
     "numpy>=1.24.0",
     "scipy>=1.11.0",
     "httpx>=0.25.0",
     "openai>=1.0.0",
     "ollama>=0.1.0",
+    "sentence-transformers",
+    "scikit-learn",
+    "neo4j",
+    "pyyaml",
 ]
 
 [project.optional-dependencies]
@@ -51,13 +54,6 @@ kg_build = [
     "xlrd",
     "indra @ git+https://github.com/gyorilab/indra.git",
     "openacme[embeddings] @ git+https://github.com/gyorilab/openacme.git",
-    "sentence-transformers",
-]
-rag = [
-    "sentence-transformers",
-    "scikit-learn",
-    "neo4j",
-    "pyyaml",
 ]
 
 [project.urls]

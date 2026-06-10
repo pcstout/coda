@@ -22,12 +22,6 @@ cd coda
 pip install -e .
 ```
 
-To use the RAG grounder (requires a running CODA KG), install with the `rag` extra:
-
-```bash
-pip install -e ".[rag]"
-```
-
 Modules
 -------
 - `coda.app`: Browser-based web application.
