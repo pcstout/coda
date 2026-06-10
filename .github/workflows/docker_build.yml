@@ -12,9 +12,9 @@ env:
   OPENAI_API_KEY_SMOKE_TEST: sk-ci-dummy-key
 
 jobs:
-  # PR path: build per (image, platform) without pushing.
-  # amd64 rows also run the smoke test (and Cypher verify for kg).
-  # No Docker Hub credentials are used.
+  # PR path: build and smoke test amd64 images only, without pushing
+  # (and Cypher verify for kg). Multi-arch is built post-merge in the
+  # approved build/publish path. No Docker Hub credentials are used.
   test:
     if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main')
     runs-on: ubuntu-latest
@@ -34,14 +34,6 @@ jobs:
             needs_openai_key: false
             lfs: false
             smoke_test: true
-          - name: app
-            dockerfile: Dockerfile.app
-            image: gyorilab/coda.app
-            build_args: COMPUTE_DEVICE=cpu
-            platform: linux/arm64
-            platform_pair: linux-arm64
-            lfs: false
-            smoke_test: false
           - name: inference
             dockerfile: Dockerfile.inference
             image: gyorilab/coda.inference
@@ -53,13 +45,6 @@ jobs:
             needs_openai_key: true
             lfs: false
             smoke_test: true
-          - name: inference
-            dockerfile: Dockerfile.inference
-            image: gyorilab/coda.inference
-            platform: linux/arm64
-            platform_pair: linux-arm64
-            lfs: false
-            smoke_test: false
           - name: kg
             dockerfile: Dockerfile.kg
             image: gyorilab/coda.kg
@@ -76,10 +61,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           lfs: ${{ matrix.lfs }}
-
-      - name: Set up QEMU
-        if: matrix.platform != 'linux/amd64'
-        uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
