@@ -31,7 +31,6 @@ ENV PIP_BREAK_SYSTEM_PACKAGES=1
 # uninstall.
 RUN python -m pip install --ignore-installed blinker && \
     python -m pip install git+https://github.com/gyorilab/gilda.git && \
-    python -c "import nltk;nltk.download('stopwords');nltk.download('punkt_tab')" && \
     python -m gilda.resources
 
 # Install neo4j apoc core (bundled with neo4j) - simply move the core jar to the plugins directory
