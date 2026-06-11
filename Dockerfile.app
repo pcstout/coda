@@ -28,10 +28,8 @@ RUN if [ "$COMPUTE_DEVICE" = "cpu" ]; then \
     fi && \
     pip install --no-cache-dir .
 
-# Download NLTK data and Gilda resources, then build a namespace-filtered
-# SQLite grounding db (only the namespaces CODA grounds to) for fast startup.
-RUN python -c "import nltk; nltk.download('stopwords'); nltk.download('punkt_tab')" && \
-    python -m gilda.resources && \
+# Build a namespace-filtered SQLite grounding db (only the namespaces CODA grounds to) for fast startup
+RUN python -m gilda.resources && \
     python -m coda.grounding.build_grounding_db /app/grounding_terms.db && \
     rm -f /root/.data/gilda/*/grounding_terms.tsv.gz
 
