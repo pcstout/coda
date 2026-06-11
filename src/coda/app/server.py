@@ -183,8 +183,7 @@ async def translate_text(text: str, source_language: str) -> str:
     try:
         llm = create_llm_client(provider=current_llm_provider,
                                 model=current_llm_model)
-        loop = asyncio.get_running_loop()
-        translation = await loop.run_in_executor(None, llm.call, prompt)
+        translation = await asyncio.to_thread(llm.call, prompt)
         return translation.strip()
     except Exception as e:
         logger.error(f"Translation error: {e}")
@@ -340,10 +339,7 @@ async def update_settings(req: SettingsRequest):
         rag_updated = True
     if rag_updated:
         if isinstance(grounder, RagGrounder):
-            loop = asyncio.get_running_loop()
-            await loop.run_in_executor(
-                None, lambda: grounder.update_config(**rag_config)
-            )
+            await asyncio.to_thread(grounder.update_config, **rag_config)
         logger.info(f"RAG grounder config updated: {rag_config}")
     if req.whisper_model is not None and req.whisper_model != current_whisper_model:
         current_whisper_model = req.whisper_model
@@ -351,15 +347,11 @@ async def update_settings(req: SettingsRequest):
         logger.info(f"Whisper model set to: {current_whisper_model}")
     # Transcriber and grounder are independent; rebuild each only if it changed.
     if grounder_changed:
-        loop = asyncio.get_running_loop()
-        grounder = await loop.run_in_executor(
-            None, create_grounder, current_grounder
-        )
+        grounder = await asyncio.to_thread(create_grounder, current_grounder)
         logger.info("Grounder reloaded: %s", current_grounder)
     if whisper_changed:
-        loop = asyncio.get_running_loop()
-        transcriber = await loop.run_in_executor(
-            None, lambda: WhisperTranscriber(model_size=current_whisper_model)
+        transcriber = await asyncio.to_thread(
+            WhisperTranscriber, model_size=current_whisper_model
         )
         logger.info("Transcriber reloaded with model=%s", current_whisper_model)
     if req.llm_provider is not None:
@@ -449,12 +441,11 @@ async def websocket_endpoint(websocket: WebSocket):
                                 transcript, current_language
                             )
 
-                    # Ground the (final, English) text in a worker thread
+                    # Ground the (final, English) text without blocking the loop
                     annotations = []
                     if english_text:
-                        loop = asyncio.get_running_loop()
-                        annotations = await loop.run_in_executor(
-                            None, grounder.annotate, english_text
+                        annotations = await asyncio.to_thread(
+                            grounder.annotate, english_text
                         )
 
                     if english_text:

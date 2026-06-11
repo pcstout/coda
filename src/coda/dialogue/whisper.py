@@ -53,11 +53,8 @@ class WhisperTranscriber(Transcriber):
                               task: str = "transcribe",
                               fp16: bool = False, verbose: bool = False):
         """Transcribe file asynchronously using thread pool."""
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(
-            None,
-            self._sync_transcribe,
-            file_path, language, task, fp16, verbose
+        return await asyncio.to_thread(
+            self._sync_transcribe, file_path, language, task, fp16, verbose
         )
 
     def _sync_transcribe(self, file_path: str, language: str,
