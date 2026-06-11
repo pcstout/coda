@@ -31,31 +31,9 @@ class Retriever:
         self.model_name = model_name
         self.top_k = top_k
         self.min_similarity = min_similarity
-        self._model = None
-        self._ensure_vector_index()
-
-    def _ensure_vector_index(self) -> None:
-        model = SentenceTransformer(self.model_name)
-        dim = model.get_sentence_embedding_dimension()
-        self._model = model
-
-        index_name = f"{self.ontology}_embedding"
-        # Label names cannot be parameterised in Cypher, so we use an f-string.
-        # ontology is an internal config value, not user input.
-        with self.driver.session() as session:
-            session.run(
-                f"""
-                CREATE VECTOR INDEX {index_name} IF NOT EXISTS
-                FOR (n:{self.ontology}) ON (n.embedding)
-                OPTIONS {{
-                    indexConfig: {{
-                        `vector.dimensions`: {dim},
-                        `vector.similarity_function`: 'cosine'
-                    }}
-                }}
-                """
-            )
-        logger.info("Vector index '%s' ready (dim=%d)", index_name, dim)
+        # The vector index is created at KG startup (see coda.kg.vector_index);
+        # here we only load the model used to encode queries.
+        self._model = SentenceTransformer(self.model_name)
 
     def retrieve(
         self,
