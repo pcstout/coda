@@ -97,10 +97,8 @@ def create_grounder(grounder_name: str):
     return GildaGrounder()
 
 
-transcriber = WhisperTranscriber(
-    grounder=create_grounder(current_grounder),
-    model_size=current_whisper_model,
-)
+grounder = create_grounder(current_grounder)
+transcriber = WhisperTranscriber(model_size=current_whisper_model)
 
 
 def open_save_files(language: str):
@@ -302,7 +300,7 @@ async def get_settings():
 @app.post("/settings")
 async def update_settings(req: SettingsRequest):
     """Update server settings."""
-    global current_language, save_enabled, transcriber
+    global current_language, save_enabled, transcriber, grounder
     global current_whisper_model, current_llm_provider, current_llm_model
     global translation_mode
     global current_grounder
@@ -320,11 +318,11 @@ async def update_settings(req: SettingsRequest):
             close_save_files()
             logger.info("Transcript saving disabled")
     if req.grounder is not None:
-        grounder = req.grounder.strip().lower()
-        if grounder not in {"gilda", "rag"}:
-            grounder = "gilda"
-        if grounder != current_grounder:
-            current_grounder = grounder
+        grounder_name = req.grounder.strip().lower()
+        if grounder_name not in {"gilda", "rag"}:
+            grounder_name = "gilda"
+        if grounder_name != current_grounder:
+            current_grounder = grounder_name
             grounder_changed = True
             logger.info(f"Grounder set to: {current_grounder}")
     rag_updated = False
@@ -341,39 +339,29 @@ async def update_settings(req: SettingsRequest):
         rag_config["use_reranker"] = req.rag_use_reranker
         rag_updated = True
     if rag_updated:
-        if isinstance(transcriber.grounder, RagGrounder):
+        if isinstance(grounder, RagGrounder):
             loop = asyncio.get_running_loop()
             await loop.run_in_executor(
-                None, lambda: transcriber.grounder.update_config(**rag_config)
+                None, lambda: grounder.update_config(**rag_config)
             )
         logger.info(f"RAG grounder config updated: {rag_config}")
     if req.whisper_model is not None and req.whisper_model != current_whisper_model:
         current_whisper_model = req.whisper_model
         whisper_changed = True
         logger.info(f"Whisper model set to: {current_whisper_model}")
-    if whisper_changed:
-        # Reload Whisper, reusing the existing grounder unless it also changed
+    # Transcriber and grounder are independent; rebuild each only if it changed.
+    if grounder_changed:
         loop = asyncio.get_running_loop()
-        new_transcriber = await loop.run_in_executor(
-            None,
-            lambda: WhisperTranscriber(
-                grounder=(create_grounder(current_grounder)
-                          if grounder_changed else transcriber.grounder),
-                model_size=current_whisper_model,
-            ),
-        )
-        transcriber = new_transcriber
-        logger.info(
-            "Transcriber reloaded with model=%s grounder=%s",
-            current_whisper_model,
-            current_grounder,
-        )
-    elif grounder_changed:
-        # Swap the grounder in place; no Whisper reload needed
-        loop = asyncio.get_running_loop()
-        transcriber.grounder = await loop.run_in_executor(
+        grounder = await loop.run_in_executor(
             None, create_grounder, current_grounder
         )
+        logger.info("Grounder reloaded: %s", current_grounder)
+    if whisper_changed:
+        loop = asyncio.get_running_loop()
+        transcriber = await loop.run_in_executor(
+            None, lambda: WhisperTranscriber(model_size=current_whisper_model)
+        )
+        logger.info("Transcriber reloaded with model=%s", current_whisper_model)
     if req.llm_provider is not None:
         current_llm_provider = req.llm_provider
         logger.info(f"LLM provider set to: {current_llm_provider}")

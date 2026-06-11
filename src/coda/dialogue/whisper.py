@@ -6,7 +6,6 @@ import torch
 import whisper
 
 from . import Transcriber
-from coda.grounding import BaseGrounder
 
 # For more info on models see
 # https://github.com/openai/whisper?tab=readme-ov-file#available-models-and-languages
@@ -21,9 +20,8 @@ logger = logging.getLogger(__name__)
 
 class WhisperTranscriber(Transcriber):
     """Transcriber implementation using OpenAI's Whisper model."""
-    def __init__(self, grounder: BaseGrounder, model_size: str = DEFAULT_MODEL_SIZE,
+    def __init__(self, model_size: str = DEFAULT_MODEL_SIZE,
                  no_speech_threshold: float = None):
-        super().__init__(grounder=grounder)
         self.no_speech_threshold = (
             no_speech_threshold if no_speech_threshold is not None
             else DEFAULT_NO_SPEECH_THRESHOLD
