@@ -14,4 +14,8 @@ do
 done
 
 neo4j status
+
+echo "Creating vector indexes"
+python /sw/vector_index.py
+
 tail -f /var/log/neo4j/neo4j.log
