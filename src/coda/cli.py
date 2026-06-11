@@ -100,6 +100,17 @@ async def run_chunked(transcriber, agent, audio_i16, language, task, chunk_durat
     return agent.all_text.strip(), per_chunk
 
 
+async def run_text(grounder, agent, text):
+    """Ground a pre-existing transcript and run a single inference call."""
+    t0 = time.perf_counter()
+    annotations = grounder.annotate(text)
+    t1 = time.perf_counter()
+    inference = await agent.process_chunk("chunk-0", text, annotations, time.time())
+    t2 = time.perf_counter()
+    timings = {"grounding_s": round(t1 - t0, 3), "inference_s": round(t2 - t1, 3)}
+    return text, [("chunk-0", text, annotations, inference, timings)]
+
+
 def write_outputs(output_dir: Path, full_text: str, per_chunk: list, meta: dict):
     """Write transcript, annotations, per-chunk trace, and final inference to disk."""
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -125,14 +136,17 @@ def write_outputs(output_dir: Path, full_text: str, per_chunk: list, meta: dict)
                 "timing": timings,
             }) + "\n")
 
-    # Roll up timing across all chunks
-    transcription_s = round(sum(t["transcription_s"] for *_, t in per_chunk), 3)
-    inference_s = round(sum(t["inference_s"] for *_, t in per_chunk), 3)
+    # Roll up timing across all chunks. The audio path folds grounding into
+    # transcription_s; the text path reports grounding_s separately.
+    transcription_s = round(sum(t.get("transcription_s", 0) for *_, t in per_chunk), 3)
+    grounding_s = round(sum(t.get("grounding_s", 0) for *_, t in per_chunk), 3)
+    inference_s = round(sum(t.get("inference_s", 0) for *_, t in per_chunk), 3)
     audio_s = meta.get("audio_duration_s") or 0
     timing = {
-        "transcription_s": transcription_s,  # includes grounding
+        "transcription_s": transcription_s,  # includes grounding (audio path)
+        "grounding_s": grounding_s,  # text path only
         "inference_s": inference_s,
-        "total_s": round(transcription_s + inference_s, 3),
+        "total_s": round(transcription_s + grounding_s + inference_s, 3),
         # real-time factor: <1 means faster than real time
         "transcription_rtf": round(transcription_s / audio_s, 3) if audio_s else None,
     }
@@ -152,10 +166,14 @@ def print_summary(full_text: str, per_chunk: list):
     """Print a short human-readable summary of the top causes to stdout."""
     final = per_chunk[-1][3] if per_chunk else {}
     causes = final.get("causes", {})
-    transcription_s = sum(t["transcription_s"] for *_, t in per_chunk)
-    inference_s = sum(t["inference_s"] for *_, t in per_chunk)
-    print(f"\nTiming: transcription {transcription_s:.1f}s (incl. grounding), "
-          f"inference {inference_s:.1f}s")
+    transcription_s = sum(t.get("transcription_s", 0) for *_, t in per_chunk)
+    grounding_s = sum(t.get("grounding_s", 0) for *_, t in per_chunk)
+    inference_s = sum(t.get("inference_s", 0) for *_, t in per_chunk)
+    if grounding_s:
+        print(f"\nTiming: grounding {grounding_s:.1f}s, inference {inference_s:.1f}s")
+    else:
+        print(f"\nTiming: transcription {transcription_s:.1f}s (incl. grounding), "
+              f"inference {inference_s:.1f}s")
     print(f"\nTranscript ({len(full_text)} chars):")
     print(f"  {full_text[:500]}{'...' if len(full_text) > 500 else ''}\n")
     if not causes:
@@ -172,7 +190,9 @@ def main():
     parser = argparse.ArgumentParser(
         description="Run CODA on an audio file: transcribe, ground, infer cause of death."
     )
-    parser.add_argument("--input", required=True, help="Path to input audio file (mp3/wav/...)")
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("--input", help="Path to input audio file (mp3/wav/...)")
+    source.add_argument("--text", help="Path to a text/transcript file")
     parser.add_argument("--output", required=True, help="Output folder for results")
     parser.add_argument("--chunking", type=float, nargs="?", const=DEFAULT_CHUNK_DURATION,
                         default=None, metavar="SECONDS",
@@ -201,38 +221,57 @@ def main():
     )
 
     grounder = build_grounder(args.grounder, args.provider, args.model)
-    transcriber = WhisperTranscriber(grounder=grounder, model_size=args.whisper_model)
     agent = build_agent(args.agent, args.provider, args.model)
 
-    print(f"Loading audio: {args.input}")
-    audio_i16 = load_audio_int16(args.input)
-    duration_s = len(audio_i16) / SAMPLE_RATE
-    mode = "whole" if args.chunking is None else f"chunked@{args.chunking}s"
-    print(f"Loaded {duration_s:.1f}s of audio. Mode={mode}, "
-          f"agent={args.agent}, grounder={args.grounder}")
-
-    if args.chunking is None:
-        full_text, per_chunk = asyncio.run(
-            run_whole_file(transcriber, agent, audio_i16, args.language, args.task)
-        )
-    else:
-        full_text, per_chunk = asyncio.run(
-            run_chunked(transcriber, agent, audio_i16, args.language, args.task,
-                        args.chunking)
-        )
-
-    meta = {
-        "input": str(Path(args.input).resolve()),
-        "mode": mode,
+    common_meta = {
         "agent": args.agent,
         "grounder": args.grounder,
         "provider": args.provider,
         "model": args.model,
-        "whisper_model": args.whisper_model,
-        "language": args.language,
-        "task": args.task,
-        "audio_duration_s": round(duration_s, 1),
     }
+
+    if args.text:
+        if args.chunking is not None:
+            print("Note: --chunking is ignored for text input.")
+        text_in = Path(args.text).read_text().strip()
+        print(f"Loaded text: {args.text} ({len(text_in)} chars). Mode=text, "
+              f"agent={args.agent}, grounder={args.grounder}")
+        full_text, per_chunk = asyncio.run(run_text(grounder, agent, text_in))
+        meta = {
+            "input": str(Path(args.text).resolve()),
+            "input_type": "text",
+            "mode": "text",
+            **common_meta,
+        }
+    else:
+        transcriber = WhisperTranscriber(grounder=grounder, model_size=args.whisper_model)
+        print(f"Loading audio: {args.input}")
+        audio_i16 = load_audio_int16(args.input)
+        duration_s = len(audio_i16) / SAMPLE_RATE
+        mode = "whole" if args.chunking is None else f"chunked@{args.chunking}s"
+        print(f"Loaded {duration_s:.1f}s of audio. Mode={mode}, "
+              f"agent={args.agent}, grounder={args.grounder}")
+
+        if args.chunking is None:
+            full_text, per_chunk = asyncio.run(
+                run_whole_file(transcriber, agent, audio_i16, args.language, args.task)
+            )
+        else:
+            full_text, per_chunk = asyncio.run(
+                run_chunked(transcriber, agent, audio_i16, args.language, args.task,
+                            args.chunking)
+            )
+        meta = {
+            "input": str(Path(args.input).resolve()),
+            "input_type": "audio",
+            "mode": mode,
+            **common_meta,
+            "whisper_model": args.whisper_model,
+            "language": args.language,
+            "task": args.task,
+            "audio_duration_s": round(duration_s, 1),
+        }
+
     output_dir = Path(args.output)
     write_outputs(output_dir, full_text, per_chunk, meta)
     print_summary(full_text, per_chunk)
