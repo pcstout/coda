@@ -429,9 +429,8 @@ async def websocket_endpoint(websocket: WebSocket):
         # Wait for tasks to stop
         await asyncio.gather(capture, process, return_exceptions=True)
 
-        # Drop audio unless saving
-        if not save_enabled:
-            shutil.rmtree(audio_path.parent, ignore_errors=True)
+        # Drop the temporary audio buffer
+        shutil.rmtree(audio_path.parent, ignore_errors=True)
 
 
 async def write_audio_bytes(websocket: WebSocket, audio_path):
