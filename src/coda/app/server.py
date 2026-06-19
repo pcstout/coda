@@ -461,6 +461,9 @@ async def process_audio_bytes(websocket: WebSocket, audio_path):
             if result is None:
                 break
             chunk_id, timestamp, chunk = result
+            logger.info(f"Audio backlog: {datetime.now().timestamp() - timestamp:.1f}s")
+            logger.info(f"Inference backlog: {len(pending_chunks)} chunks, "
+                        f"{processor.chunk_duration} seconds each")
 
             # Backpressure: drop oldest chunk if too many pending
             if len(pending_chunks) >= MAX_PENDING_CHUNKS:
