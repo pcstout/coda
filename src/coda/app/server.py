@@ -457,7 +457,10 @@ async def process_audio_bytes(websocket: WebSocket, audio_path):
         offset = size
         if not processor.add_audio(data):
             continue
-        while (result := processor.get_chunk()) is not None:
+        while True:
+            result = processor.get_chunk()
+            if result is None:
+                break
             chunk_id, timestamp, chunk = result
 
             # Backpressure: drop oldest chunk if too many pending
@@ -471,87 +474,92 @@ async def process_audio_bytes(websocket: WebSocket, audio_path):
                     "message": "Processing slower than audio - dropping old chunks"
                 })
 
-            # Transcribe audio to text
-            original_transcript = None
-            if (current_language != "en"
-                    and translation_mode == "whisper_translate"):
-                # Whisper translates directly to English
-                english_text = await transcriber.transcribe_audio(
-                    chunk, language=current_language, task="translate"
-                )
-            else:
-                # Transcribe in the configured language
-                transcript = await transcriber.transcribe_audio(
-                    chunk, language=current_language
-                )
-                english_text = transcript
+            await handle_chunk(websocket, chunk_id, timestamp, chunk)
 
-                # If non-English with LLM mode, translate
-                # (skip if transcript is too short to be real speech)
-                if (current_language != "en"
-                        and translation_mode == "llm"
-                        and len(transcript.split()) > 1):
-                    original_transcript = transcript
-                    english_text = await translate_text(
-                        transcript, current_language
-                    )
 
-            # Ground the (final, English) text without blocking the loop
-            annotations = []
-            if english_text:
-                annotations = await asyncio.to_thread(
-                    grounder.annotate, english_text
-                )
+async def handle_chunk(websocket: WebSocket, chunk_id, timestamp, chunk):
+    """Transcribe, ground, save, and start inference for one chunk."""
+    # Transcribe audio to text
+    original_transcript = None
+    if (current_language != "en"
+            and translation_mode == "whisper_translate"):
+        # Whisper translates directly to English
+        english_text = await transcriber.transcribe_audio(
+            chunk, language=current_language, task="translate"
+        )
+    else:
+        # Transcribe in the configured language
+        transcript = await transcriber.transcribe_audio(
+            chunk, language=current_language
+        )
+        english_text = transcript
 
-            if english_text:
+        # If non-English with LLM mode, translate
+        # (skip if transcript is too short to be real speech)
+        if (current_language != "en"
+                and translation_mode == "llm"
+                and len(transcript.split()) > 1):
+            original_transcript = transcript
+            english_text = await translate_text(
+                transcript, current_language
+            )
 
-                # Save transcripts and annotations if enabled
-                if save_enabled:
-                    save_transcript(english_text, "en")
-                    if original_transcript and current_language != "en":
-                        save_transcript(original_transcript,
-                                        current_language)
-                    save_annotated_chunk(
-                        chunk_id, timestamp, english_text,
-                        annotations,
-                        original_text=original_transcript,
-                        original_language=(current_language
-                                           if current_language != "en"
-                                           else None),
-                    )
+    # Ground the (final, English) text without blocking the loop
+    annotations = []
+    if english_text:
+        annotations = await asyncio.to_thread(
+            grounder.annotate, english_text
+        )
 
-                # Build structured annotations for inline display
-                structured_annotations = [
-                    {
-                        "text": ann.text,
-                        "start": ann.start,
-                        "end": ann.end,
-                        "curie": ann.matches[0].term.get_curie(),
-                        "name": ann.matches[0].term.entry_name,
-                    }
-                    for ann in annotations
-                ] if annotations else []
+    if english_text:
 
-                # Send transcript to client
-                msg = {
-                    "type": "transcript",
-                    "chunk_id": chunk_id,
-                    "timestamp": timestamp,
-                    "transcript": english_text,
-                    "annotations": structured_annotations,
-                }
-                if original_transcript:
-                    msg["original_transcript"] = original_transcript
-                    msg["original_language"] = current_language
-                await websocket.send_json(msg)
-                logger.info(f"Chunk {chunk_id}: {english_text}")
+        # Save transcripts and annotations if enabled
+        if save_enabled:
+            save_transcript(english_text, "en")
+            if original_transcript and current_language != "en":
+                save_transcript(original_transcript,
+                                current_language)
+            save_annotated_chunk(
+                chunk_id, timestamp, english_text,
+                annotations,
+                original_text=original_transcript,
+                original_language=(current_language
+                                   if current_language != "en"
+                                   else None),
+            )
 
-                # Start inference in background (always on English text)
-                inference_task = asyncio.create_task(
-                    process_inference(chunk_id, timestamp, english_text,
-                                    annotations, websocket)
-                )
-                pending_chunks[chunk_id] = inference_task
+        # Build structured annotations for inline display
+        structured_annotations = [
+            {
+                "text": ann.text,
+                "start": ann.start,
+                "end": ann.end,
+                "curie": ann.matches[0].term.get_curie(),
+                "name": ann.matches[0].term.entry_name,
+            }
+            for ann in annotations
+        ] if annotations else []
+
+        # Send transcript to client
+        msg = {
+            "type": "transcript",
+            "chunk_id": chunk_id,
+            "timestamp": timestamp,
+            "transcript": english_text,
+            "annotations": structured_annotations,
+        }
+        if original_transcript:
+            msg["original_transcript"] = original_transcript
+            msg["original_language"] = current_language
+        await websocket.send_json(msg)
+        logger.info(f"Chunk {chunk_id}: {english_text}")
+
+        # Start inference in background (always on English text)
+        inference_task = asyncio.create_task(
+            process_inference(chunk_id, timestamp, english_text,
+                            annotations, websocket)
+        )
+        pending_chunks[chunk_id] = inference_task
 
 
 @app.post("/reset")
